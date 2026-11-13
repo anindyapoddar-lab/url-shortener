@@ -26,12 +26,19 @@ class LinkController {
     }
 
     @GetMapping("/r/{code:[A-Za-z0-9_-]{12}}")
-    ResponseEntity<Void> redirect(@PathVariable String code) throws IOException {
-        var link = store.get(code);
+    ResponseEntity<Void> redirect(@PathVariable String code, HttpServletRequest request) throws IOException {
+        var link = request.getMethod().equals("HEAD") ? store.get(code) : store.redirect(code);
         if (link == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         return ResponseEntity.status(HttpStatus.FOUND)
                 .header(HttpHeaders.LOCATION, link.destination())
                 .cacheControl(CacheControl.noStore()).build();
+    }
+
+    @GetMapping(value = "/links/{code:[A-Za-z0-9_-]{12}}/analytics", produces = MediaType.TEXT_PLAIN_VALUE)
+    String analytics(@PathVariable String code) {
+        var link = store.get(code);
+        if (link == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        return link.clicks() + "\n";
     }
 
     static String validate(String input) {

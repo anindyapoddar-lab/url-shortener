@@ -12,7 +12,7 @@ import java.util.Map;
 
 @org.springframework.stereotype.Repository
 class LinkStore implements AutoCloseable {
-    record Link(String destination) {}
+    record Link(String destination, long clicks) {}
     private final Path file;
     private final FileChannel lockChannel;
     private final Map<String, Link> links = new HashMap<>();
@@ -45,12 +45,19 @@ class LinkStore implements AutoCloseable {
             random.nextBytes(bytes);
             code = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
         } while (links.containsKey(code));
-        save(code, new Link(destination));
+        save(code, new Link(destination, 0));
         return code;
     }
 
     synchronized Link get(String code) {
         return links.get(code);
+    }
+
+    synchronized Link redirect(String code) throws IOException {
+        Link link = links.get(code);
+        if (link == null) return null;
+        save(code, new Link(link.destination(), Math.incrementExact(link.clicks())));
+        return link;
     }
 
     private void save(String code, Link link) throws IOException {
@@ -70,11 +77,12 @@ class LinkStore implements AutoCloseable {
     }
 
     private static String encode(String code, Link link) {
-        return code + "\t" + Base64.getEncoder().encodeToString(link.destination().getBytes(StandardCharsets.UTF_8));
+        return code + "\t" + Base64.getEncoder().encodeToString(link.destination().getBytes(StandardCharsets.UTF_8)) + "\t" + link.clicks();
     }
 
     private static Link decode(String[] fields) {
-        return new Link(new String(Base64.getDecoder().decode(fields[1]), StandardCharsets.UTF_8));
+        return new Link(new String(Base64.getDecoder().decode(fields[1]), StandardCharsets.UTF_8),
+                fields.length >= 3 ? Long.parseLong(fields[2]) : 0);
     }
 
     public void close() throws IOException {
