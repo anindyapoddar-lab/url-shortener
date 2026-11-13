@@ -122,7 +122,9 @@ public class Workflow {
                         }
                     } catch (ExecutionException failure) {
                         mark(stage, "failed");
-                        event("runner", "safe-stop", stage + ":" + failure.getCause().getClass().getSimpleName());
+                        var cause = failure.getCause();
+                        String detail = String.valueOf(cause.getMessage()).replaceAll("[\\t\\r\\n]", " ");
+                        event("runner", "safe-stop", stage + ":" + cause.getClass().getSimpleName() + ":" + detail);
                         terminal("failed");
                         completed = false;
                     } catch (InterruptedException interrupted) {
@@ -195,7 +197,7 @@ public class Workflow {
         revision++;
         state.setProperty("revision", Integer.toString(revision));
         state.setProperty("started", Long.toString(System.currentTimeMillis()));
-        for (String key : List.of("decision", "approval.digest", "approval.actor", "fault")) state.remove(key);
+        for (String key : List.of("decision", "approval.digest", "approval.artifact", "approval.actor", "fault")) state.remove(key);
         restoreCandidate();
         save();
         event(actor, "replan", String.join(",", invalidated));
@@ -215,7 +217,7 @@ public class Workflow {
         }
         if (!sourceDigest().equals(state.getProperty("approval.digest"))
                 || !sourceDigest(snapshotDirectory()).equals(state.getProperty("approval.digest"))
-                || !fileDigest(snapshotDirectory().resolve("shortener.jar")).equals(state.getProperty("artifact"))) {
+                || !fileDigest(snapshotDirectory().resolve("shortener.jar")).equals(state.getProperty("approval.artifact"))) {
             mark("release", "failed");
             event("runner", "safe-stop", "source-changed");
             terminal("failed");
@@ -431,6 +433,12 @@ public class Workflow {
                     throw new IllegalStateException("Source changed after the implementation stage");
                 }
                 state.setProperty("decision", action);
+                String artifact = fileDigest(snapshotDirectory().resolve("shortener.jar"));
+                if (!artifact.equals(state.getProperty("artifact"))
+                        || !digest.equals(sourceDigest(snapshotDirectory()))) {
+                    throw new IllegalStateException("Validated snapshot changed after testing");
+                }
+                state.setProperty("approval.artifact", artifact);
                 state.setProperty("approval.digest", digest);
                 state.setProperty("approval.actor", args[3]);
                 save();
