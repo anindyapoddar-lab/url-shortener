@@ -1,6 +1,9 @@
 package demo.shortener;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Base64;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import static org.junit.jupiter.api.Assertions.*;
@@ -34,6 +37,30 @@ class LinkControllerTest {
             mvc.perform(post("/links").content("file:///tmp")).andExpect(status().isBadRequest());
             mvc.perform(post("/links").content("x".repeat(2049))).andExpect(status().isPayloadTooLarge());
             mvc.perform(post("/links?ttl=0").content("https://example.org")).andExpect(status().isBadRequest());
+        }
+    }
+
+    @Test
+    void returnsGoneForExpiredLinksAndKeepsAnalyticsAvailable() throws Exception {
+        String code = "ExpiredCode1";
+        String encoded = Base64.getEncoder().encodeToString("https://example.org".getBytes(StandardCharsets.UTF_8));
+        Files.writeString(directory.resolve("links.tsv"), code + "\t" + encoded + "\t3\t1\n");
+
+        try (var store = new LinkStore(directory.toString())) {
+            var mvc = standaloneSetup(new LinkController(store)).build();
+            mvc.perform(get("/r/" + code)).andExpect(status().isGone())
+                    .andExpect(header().doesNotExist("Location"));
+            mvc.perform(get("/links/" + code + "/analytics"))
+                    .andExpect(status().isOk()).andExpect(content().string("3\n"));
+        }
+    }
+
+    @Test
+    void returnsNotFoundForUnknownCodes() throws Exception {
+        try (var store = new LinkStore(directory.toString())) {
+            var mvc = standaloneSetup(new LinkController(store)).build();
+            mvc.perform(get("/r/UnknownCode1")).andExpect(status().isNotFound());
+            mvc.perform(get("/links/UnknownCode1/analytics")).andExpect(status().isNotFound());
         }
     }
 }

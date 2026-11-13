@@ -114,11 +114,9 @@ validation, governance, and limitations.
 | 6 | Spring MVC and workflow verification suites |
 | 7 | Explicit approval binding to the tested JAR and snapshot |
 | 8 | Quickstart, scenario walkthroughs, and engineering summary |
+| 9 | JUnit regression coverage for persistence, legacy records, expiration, and missing links |
 
-The complete download includes separate source ZIPs for all eight commits.
-Extract one ZIP and run its Maven project from the directory containing
-`pom.xml`. The project-level `history.bundle` can also be cloned with
-`git clone -b main history.bundle spring-url-shortener-git`.
+Run the V9 JUnit suite with `mvn test`. Reports are in `target/surefire-reports`.
 
 The workflow CLI launches Maven from PATH. To use another Maven executable,
 set `SHORTENER_MAVEN` to its absolute path on Unix or configure Maven on PATH
