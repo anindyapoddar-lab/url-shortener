@@ -4,6 +4,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
@@ -21,14 +22,27 @@ class LinkController {
         byte[] body = request.getInputStream().readNBytes(2049);
         if (body.length > 2048) throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE);
         String destination = validate(new String(body, StandardCharsets.UTF_8).strip());
-        String code = store.create(destination);
+        String query = request.getQueryString();
+        long ttl = 0;
+        if (query != null) {
+            if (!query.matches("ttl=[0-9]{1,7}")) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid TTL");
+            }
+            ttl = Long.parseLong(query.substring(4));
+            if (ttl < 1 || ttl > 2592000) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "TTL out of range");
+            }
+        }
+        String code = store.create(destination, ttl);
         return ResponseEntity.created(URI.create("/r/" + code)).body(code + "\n");
     }
 
     @GetMapping("/r/{code:[A-Za-z0-9_-]{12}}")
     ResponseEntity<Void> redirect(@PathVariable String code, HttpServletRequest request) throws IOException {
-        var link = request.getMethod().equals("HEAD") ? store.get(code) : store.redirect(code);
+        long now = Instant.now().getEpochSecond();
+        var link = request.getMethod().equals("HEAD") ? store.get(code) : store.redirect(code, now);
         if (link == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        if (link.expired(now)) throw new ResponseStatusException(HttpStatus.GONE);
         return ResponseEntity.status(HttpStatus.FOUND)
                 .header(HttpHeaders.LOCATION, link.destination())
                 .cacheControl(CacheControl.noStore()).build();

@@ -12,7 +12,11 @@ import java.util.Map;
 
 @org.springframework.stereotype.Repository
 class LinkStore implements AutoCloseable {
-    record Link(String destination, long clicks) {}
+    record Link(String destination, long clicks, long expiresAt) {
+        boolean expired(long now) {
+            return expiresAt != 0 && now >= expiresAt;
+        }
+    }
     private final Path file;
     private final FileChannel lockChannel;
     private final Map<String, Link> links = new HashMap<>();
@@ -38,14 +42,14 @@ class LinkStore implements AutoCloseable {
         }
     }
 
-    synchronized String create(String destination) throws IOException {
+    synchronized String create(String destination, long ttlSeconds) throws IOException {
         byte[] bytes = new byte[9];
         String code;
         do {
             random.nextBytes(bytes);
             code = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
         } while (links.containsKey(code));
-        save(code, new Link(destination, 0));
+        save(code, new Link(destination, 0, ttlSeconds == 0 ? 0 : Instant.now().getEpochSecond() + ttlSeconds));
         return code;
     }
 
@@ -53,10 +57,10 @@ class LinkStore implements AutoCloseable {
         return links.get(code);
     }
 
-    synchronized Link redirect(String code) throws IOException {
+    synchronized Link redirect(String code, long now) throws IOException {
         Link link = links.get(code);
-        if (link == null) return null;
-        save(code, new Link(link.destination(), Math.incrementExact(link.clicks())));
+        if (link == null || link.expired(now)) return link;
+        save(code, new Link(link.destination(), Math.incrementExact(link.clicks()), link.expiresAt()));
         return link;
     }
 
@@ -77,12 +81,13 @@ class LinkStore implements AutoCloseable {
     }
 
     private static String encode(String code, Link link) {
-        return code + "\t" + Base64.getEncoder().encodeToString(link.destination().getBytes(StandardCharsets.UTF_8)) + "\t" + link.clicks();
+        return code + "\t" + Base64.getEncoder().encodeToString(link.destination().getBytes(StandardCharsets.UTF_8)) + "\t" + link.clicks() + "\t" + link.expiresAt();
     }
 
     private static Link decode(String[] fields) {
         return new Link(new String(Base64.getDecoder().decode(fields[1]), StandardCharsets.UTF_8),
-                fields.length >= 3 ? Long.parseLong(fields[2]) : 0);
+                fields.length >= 3 ? Long.parseLong(fields[2]) : 0,
+                fields.length >= 4 ? Long.parseLong(fields[3]) : 0);
     }
 
     public void close() throws IOException {
